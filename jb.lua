@@ -2065,7 +2065,7 @@ local function updateFlyAndSpeedButtons(flyButton, speedButton)
 	end 
 end
 task.spawn(function() while wait() do
-updateFlyAndSpeedButtons(FlyButton, SpeedButton) end
+updateFlyAndSpeedButtons(FlyButton, SpeedButton) end end)
 
 
 -- Remove GUI hook (Fly GUI stays regardless of GUI toggle)
