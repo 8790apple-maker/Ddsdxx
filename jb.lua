@@ -2062,10 +2062,11 @@ local function updateFlyAndSpeedButtons(flyButton, speedButton)
         toggleSpeed()
         speedButton.BackgroundColor3 = speedEnabled and Color3.fromRGB(0, 0, 255) or Color3.fromRGB(255, 255, 255)
         flyButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255) -- Reset Fly button color
-	end 
+    end
+    
 end
-task.spawn(function() while wait() do
-updateFlyAndSpeedButtons(FlyButton, SpeedButton) end end)
+
+updateFlyAndSpeedButtons(FlyButton, SpeedButton)
 
 
 -- Remove GUI hook (Fly GUI stays regardless of GUI toggle)
@@ -2076,31 +2077,35 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
-local ESP_Boxes = {}
-local ESP_Names = {}
-local ESP_Tracers = {}
+local ESP_Boxes = {} 
+local ESP_Names = {} 
+local ESP_Tracers = {} 
 
 local ESP_Enabled = false
 local Names_Enabled = false
 local Tracers_Enabled = false
 
 local function createESP(player)
-    if player == LocalPlayer then return end
+    if player == LocalPlayer then return end  
 
-    ESP_Boxes[player] = Drawing.new("Square")
-    ESP_Boxes[player].Thickness = 2
-    ESP_Boxes[player].Filled = false
-    ESP_Boxes[player].Visible = false
+    local box = Drawing.new("Square")
+    box.Thickness = 2
+    box.Filled = false
+    box.Visible = false
 
-    ESP_Names[player] = Drawing.new("Text")
-    ESP_Names[player].Size = 18
-    ESP_Names[player].Center = true
-    ESP_Names[player].Outline = true
-    ESP_Names[player].Visible = false
+    local nameTag = Drawing.new("Text")
+    nameTag.Size = 18
+    nameTag.Center = true
+    nameTag.Outline = true
+    nameTag.Visible = false
 
-    ESP_Tracers[player] = Drawing.new("Line")
-    ESP_Tracers[player].Thickness = 2
-    ESP_Tracers[player].Visible = false
+    local tracer = Drawing.new("Line")
+    tracer.Thickness = 2
+    tracer.Visible = false
+
+    ESP_Boxes[player] = box
+    ESP_Names[player] = nameTag
+    ESP_Tracers[player] = tracer
 end
 
 local function updateESP()
@@ -2108,37 +2113,54 @@ local function updateESP()
         local box = ESP_Boxes[player]
         local nameTag = ESP_Names[player]
         local tracer = ESP_Tracers[player]
-        local char = player.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        local humanoid = char and char:FindFirstChild("Humanoid")
 
-        if box and nameTag and tracer and hrp and humanoid then
+        if box and nameTag and tracer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") then
+            local hrp = player.Character.HumanoidRootPart
+            local humanoid = player.Character.Humanoid
             local screenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+
             if onScreen then
-                local height = math.abs(Camera:WorldToViewportPoint(hrp.Position + Vector3.new(0, humanoid.HipHeight + 3.5, 0)).Y - Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, humanoid.HipHeight + 3.5, 0)).Y) * 1.1
-                local width = height * 0.6
+                local charHeight = humanoid.HipHeight + 3.5
+                local topScreenPos = Camera:WorldToViewportPoint(hrp.Position + Vector3.new(0, charHeight / 2, 0))
+                local bottomScreenPos = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, charHeight / 2, 0))
+
+                local height = math.abs(topScreenPos.Y - bottomScreenPos.Y) * 1.1
+                local width = height * 0.6 
+
                 local color = (player.Team == LocalPlayer.Team) and Color3.new(0, 0, 1) or Color3.new(1, 0, 0)
 
-                box.Size = Vector2.new(width, height)
-                box.Position = Vector2.new(screenPos.X - width / 2, screenPos.Y - height * 0.75)
-                box.Color = color
-                box.Visible = ESP_Enabled
+                if ESP_Enabled then
+                    box.Size = Vector2.new(width, height)
+                    box.Position = Vector2.new(screenPos.X - (width / 2), screenPos.Y - height * 0.75)
+                    box.Color = color
+                    box.Visible = true
+                else
+                    box.Visible = false
+                end
 
-                nameTag.Position = Vector2.new(screenPos.X, screenPos.Y - height / 2 - 15)
-                nameTag.Text = player.Name
-                nameTag.Color = color
-                nameTag.Visible = Names_Enabled
+                if Names_Enabled then
+                    nameTag.Position = Vector2.new(screenPos.X, screenPos.Y - height / 2 - 15)
+                    nameTag.Text = player.Name
+                    nameTag.Color = color
+                    nameTag.Visible = true
+                else
+                    nameTag.Visible = false
+                end
 
-                tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
-                tracer.To = Vector2.new(screenPos.X, screenPos.Y)
-                tracer.Color = color
-                tracer.Visible = Tracers_Enabled
+                if Tracers_Enabled then
+                    tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y) -- Start from bottom center
+                    tracer.To = Vector2.new(screenPos.X, screenPos.Y) -- End at player's position
+                    tracer.Color = color
+                    tracer.Visible = true
+                else
+                    tracer.Visible = false
+                end
             else
                 box.Visible = false
                 nameTag.Visible = false
                 tracer.Visible = false
             end
-        elseif box or nameTag or tracer then
+        else
             if box then box.Visible = false end
             if nameTag then nameTag.Visible = false end
             if tracer then tracer.Visible = false end
@@ -2147,9 +2169,18 @@ local function updateESP()
 end
 
 local function removeESP(player)
-    if ESP_Boxes[player] then ESP_Boxes[player]:Remove() ESP_Boxes[player] = nil end
-    if ESP_Names[player] then ESP_Names[player]:Remove() ESP_Names[player] = nil end
-    if ESP_Tracers[player] then ESP_Tracers[player]:Remove() ESP_Tracers[player] = nil end
+    if ESP_Boxes[player] then
+        ESP_Boxes[player]:Remove()
+        ESP_Boxes[player] = nil
+    end
+    if ESP_Names[player] then
+        ESP_Names[player]:Remove()
+        ESP_Names[player] = nil
+    end
+    if ESP_Tracers[player] then
+        ESP_Tracers[player]:Remove()
+        ESP_Tracers[player] = nil
+    end
 end
 
 for _, player in ipairs(Players:GetPlayers()) do
@@ -2164,16 +2195,20 @@ Players.PlayerAdded:Connect(function(player)
 end)
 
 Players.PlayerRemoving:Connect(removeESP)
+
 RunService.RenderStepped:Connect(updateESP)
 
 _G.Main.createButton(Visuals, "Toggle ESP", function()
     ESP_Enabled = not ESP_Enabled
+    print("ESP Enabled:", ESP_Enabled)
 end)
 
 _G.Main.createButton(Visuals, "Toggle Names", function()
     Names_Enabled = not Names_Enabled
+    print("Name Tags Enabled:", Names_Enabled)
 end)
 
 _G.Main.createButton(Visuals, "Toggle Tracers", function()
     Tracers_Enabled = not Tracers_Enabled
+    print("Tracers Enabled:", Tracers_Enabled)
 end)
