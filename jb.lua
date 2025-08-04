@@ -1875,299 +1875,255 @@ _G.Main.createButton(utilityFrame, "Key Spoofer", function()
            restorefunction(jb.PlayerUtils.hasKey)
    end
 end)
-local flying = false
+-- Services
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local GuiService = game:GetService("GuiService")
+
+-- Player & Character
+local player = Players.LocalPlayer
+local character
+local root
+local humanoid
+
+-- This is the SINGLE BodyVelocity instance for both fly and speed.
+local bodyVelocity = nil
+
+-- State Variables
+local isFlying = false
+local isSpeeding = false
+
+-- Settings
+local FLY_SPEED = 50
+local WALK_SPEED = 43
 local targetHeight = 10
-local speed = 100
-local minHeight = 0.5
-local heightStep = 4
+local minHeight = 2
+local heightStep = 2
 local holdSpeed = 0.1
-local holdUp, holdDown = false, false 
+local holdUp, holdDown = false, false
 
-local player = game:GetService("Players").LocalPlayer
-local character, root, humanoid
-local bv = nil
+------------------------------------------------------------
+-- ## Core Logic ##
+------------------------------------------------------------
 
-local function updateCharacter(newCharacter)
+-- This function creates, configures, or destroys the single BodyVelocity
+local function manageBodyVelocity()
+    local isEnabled = isFlying or isSpeeding
+
+    -- 1. Create BodyVelocity if it's needed but doesn't exist
+    if isEnabled and not bodyVelocity then
+        bodyVelocity = Instance.new("BodyVelocity")
+        bodyVelocity.Parent = root
+    -- 2. Destroy BodyVelocity if it exists but is no longer needed
+    elseif not isEnabled and bodyVelocity then
+        bodyVelocity:Destroy()
+        bodyVelocity = nil
+        return -- Exit because no more configuration is needed
+    end
+
+    -- 3. Configure the existing BodyVelocity based on the current mode
+    if bodyVelocity then
+        if isFlying then
+            -- For flying, we need control over all axes
+            bodyVelocity.MaxForce = Vector3.new(4e5, 4e5, 4e5)
+        elseif isSpeeding then
+            -- For speed, we only control horizontal movement to allow jumping
+            bodyVelocity.MaxForce = Vector3.new(4e5, 0, 4e5)
+        end
+    end
+end
+
+-- A single function to update character variables on spawn
+local function onCharacterAdded(newCharacter)
     character = newCharacter
     root = character:WaitForChild("HumanoidRootPart")
     humanoid = character:WaitForChild("Humanoid")
     
-    if flying then
-        toggleFly(true)
+    -- Re-apply effects if they were active before dying
+    manageBodyVelocity()
+end
+
+-- Unified RenderStepped loop for movement
+RunService.RenderStepped:Connect(function()
+    -- Only run if a mode is active and the BodyVelocity exists
+    if not bodyVelocity or not root or not humanoid then return end
+
+    local moveDirection = humanoid.MoveDirection
+    local finalVelocity = Vector3.new(0,0,0)
+
+    if isFlying then
+        -- Calculate vertical velocity to smoothly maintain target height
+        local verticalVelocity = (targetHeight - root.Position.Y) * 10
+        -- Calculate horizontal velocity based on player input and fly speed
+        local horizontalVelocity = moveDirection * FLY_SPEED
+        finalVelocity = horizontalVelocity + Vector3.new(0, verticalVelocity, 0)
+    elseif isSpeeding then
+        -- Calculate horizontal velocity but preserve natural vertical velocity (for jumping)
+        local horizontalVelocity = moveDirection * WALK_SPEED
+        finalVelocity = Vector3.new(horizontalVelocity.X, root.Velocity.Y, horizontalVelocity.Z)
     end
-end
+    
+    bodyVelocity.Velocity = finalVelocity
+end)
 
-player.CharacterAdded:Connect(updateCharacter)
-if player.Character then
-    updateCharacter(player.Character)
-end
+------------------------------------------------------------
+-- ## Fly Controls ##
+------------------------------------------------------------
 
-local FlyGUI = Instance.new("Frame", screenGui)
-FlyGUI.Size = UDim2.new(0.1, 0, 0.1, 0)
-FlyGUI.Position = UDim2.new(0.85, 0, 0.4, 0)
+-- Assuming 'screenGui' is a valid ScreenGui instance
+local FlyGUI = Instance.new("Frame")
+FlyGUI.Size = UDim2.new(0, 80, 0, 80)
+FlyGUI.Position = UDim2.new(1, -100, 0.5, -40)
 FlyGUI.BackgroundTransparency = 1
 FlyGUI.Visible = false
+FlyGUI.Parent = player:WaitForChild("PlayerGui")
 
 local UpButton = Instance.new("TextButton", FlyGUI)
-UpButton.Size = UDim2.new(1, 0, 0.5, 0)
+UpButton.Size = UDim2.new(1, 0, 0.5, -2)
 UpButton.Position = UDim2.new(0, 0, 0, 0)
 UpButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
 UpButton.Text = "⬆"
 UpButton.TextScaled = true
-UpButton.Parent = FlyGUI
 
 local DownButton = Instance.new("TextButton", FlyGUI)
-DownButton.Size = UDim2.new(1, 0, 0.5, 0)
-DownButton.Position = UDim2.new(0, 0, 0.5, 0)
-DownButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+DownButton.Size = UDim2.new(1, 0, 0.5, -2)
+DownButton.Position = UDim2.new(0, 0, 0.5, 2)
+DownButton.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
 DownButton.Text = "⬇"
 DownButton.TextScaled = true
-DownButton.Parent = FlyGUI
 
 local function getGroundHeight()
-    local ray = Ray.new(root.Position, Vector3.new(0, -100, 0)) -- Cast downwards
-    local hit, pos = workspace:FindPartOnRayWithIgnoreList(ray, {character})
-    return hit and pos.Y or root.Position.Y
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {character}
+    local result = workspace:Raycast(root.Position, Vector3.new(0, -500, 0), params)
+    return result and result.Position.Y or root.Position.Y - 100
 end
 
-local function toggleFly(state)
-    flying = state or not flying
-    FlyGUI.Visible = flying
-
-    if flying then
-        if not bv then
-            bv = Instance.new("BodyVelocity")
-            bv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-            bv.Velocity = Vector3.zero
-            bv.Parent = root
-        end
-        targetHeight = math.max(getGroundHeight() + minHeight, root.Position.Y)
+local function changeHeight(amount)
+    local newHeight = targetHeight + amount
+    if amount < 0 then
+        -- Prevent going below the ground
+        local groundHeight = getGroundHeight()
+        targetHeight = math.max(newHeight, groundHeight + minHeight)
     else
-        if bv then bv:Destroy(); bv = nil end
-        root.AssemblyLinearVelocity = Vector3.zero
+        targetHeight = newHeight
     end
 end
 
-game:GetService("RunService").RenderStepped:Connect(function()
-    if flying and character and root then
-        local moveDirection = humanoid.MoveDirection
-        local verticalVelocity = (targetHeight - root.Position.Y) * 5 -- Smooth height adjustment
-        bv.Velocity = moveDirection * speed + Vector3.new(0, verticalVelocity, 0)
-    end
-end)
-
-local function increaseHeight()
-    targetHeight = targetHeight + heightStep
-end
-
-local function decreaseHeight()
-    local groundHeight = getGroundHeight()
-    if targetHeight > groundHeight + minHeight then
-        targetHeight = targetHeight - heightStep
-    end
-end
-
-local function startHoldingUp()
-    holdUp = true
-    while holdUp do
-        increaseHeight()
-        task.wait(holdSpeed)
-    end
-end
-
-local function startHoldingDown()
-    holdDown = true
-    while holdDown do
-        decreaseHeight()
-        task.wait(holdSpeed)
-    end
-end
-
-UpButton.MouseButton1Down:Connect(startHoldingUp)
+-- Connect hold-down functions for Up/Down buttons
+UpButton.MouseButton1Down:Connect(function() holdUp = true; while holdUp do changeHeight(heightStep); task.wait(holdSpeed) end end)
 UpButton.MouseButton1Up:Connect(function() holdUp = false end)
 UpButton.MouseLeave:Connect(function() holdUp = false end)
 
-DownButton.MouseButton1Down:Connect(startHoldingDown)
+DownButton.MouseButton1Down:Connect(function() holdDown = true; while holdDown do changeHeight(-heightStep); task.wait(holdSpeed) end end)
 DownButton.MouseButton1Up:Connect(function() holdDown = false end)
 DownButton.MouseLeave:Connect(function() holdDown = false end)
 
-game:GetService("UserInputService").InputBegan:Connect(function(input, gameProcessed)
+-- Keybinds for height adjustment
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
+    if not isFlying then return end
+
     if input.KeyCode == Enum.KeyCode.F then
-        increaseHeight()
+        changeHeight(heightStep * 2) -- Make single press more responsive
     elseif input.KeyCode == Enum.KeyCode.L then
-        decreaseHeight()
-    end
-end)
-local flyButton = _G.Main.createButton(utilityFrame, "ToggleFly[F and L]", function() toggleFly() end)
-
-local speedEnabled = false
-local ws = 50
-local bv = nil
-
-local player = game:GetService("Players").LocalPlayer
-local character, root, humanoid
-local function updateCharacter(newCharacter)
-    character = newCharacter
-    root = character:WaitForChild("HumanoidRootPart")
-    humanoid = character:WaitForChild("Humanoid")
-    if speedEnabled then
-        toggleSpeed(true)
-    end
-end
-
-player.CharacterAdded:Connect(updateCharacter)
-if player.Character then
-    updateCharacter(player.Character)
-end
-
-local function toggleSpeed(state)
-    speedEnabled = state or not speedEnabled
-
-    if speedEnabled then
-        if not bv then
-            bv = Instance.new("BodyVelocity")
-            bv.MaxForce = Vector3.new(1e5, 0, 1e5) -- No Y-axis force (jumps work normally)
-            bv.Velocity = Vector3.zero
-            bv.Parent = root
-        end
-    else
-        if bv then bv:Destroy(); bv = nil end
-        root.AssemblyLinearVelocity = Vector3.zero
-    end
-end
-
-game:GetService("RunService").RenderStepped:Connect(function()
-    if speedEnabled and character and root then
-        local moveDirection = humanoid.MoveDirection
-        bv.Velocity = Vector3.new(moveDirection.X * ws, root.Velocity.Y, moveDirection.Z * speed)
+        changeHeight(-heightStep * 2)
     end
 end)
 
-local speedButton = _G.Main.createButton(utilityFrame, "Toggle Speed", function() toggleSpeed() end)
-local function updateFlyAndSpeedButtons(flyButton, speedButton)
-    local function toggleFly()
-        if speedEnabled then
-            toggleSpeed(false) -- Disable Speed before enabling Fly
-        end
-        toggleFly()
-        flyButton.BackgroundColor3 = flying and Color3.fromRGB(0, 0, 255) or Color3.fromRGB(255, 255, 255)
-        speedButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255) -- Reset Speed button color
-    end
 
-    local function toggleSpeed()
-        if flying then
-            toggleFly(false)
-        end
-        toggleSpeed()
-        speedButton.BackgroundColor3 = speedEnabled and Color3.fromRGB(0, 0, 255) or Color3.fromRGB(255, 255, 255)
-        flyButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255) -- Reset Fly button color
+------------------------------------------------------------
+-- ## Main Toggle Functions ##
+------------------------------------------------------------
+
+local function toggleFly()
+    isFlying = not isFlying
+    
+    -- If we just turned fly ON, turn speed OFF.
+    if isFlying then
+        isSpeeding = false
+        targetHeight = math.max(getGroundHeight() + minHeight, root.Position.Y)
     end
     
+    FlyGUI.Visible = isFlying
+    manageBodyVelocity()
 end
 
-updateFlyAndSpeedButtons(FlyButton, SpeedButton)
+local function toggleSpeed()
+    isSpeeding = not isSpeeding
+    
+    -- If we just turned speed ON, turn fly OFF.
+    if isSpeeding then
+        isFlying = false
+    end
+    
+    FlyGUI.Visible = isFlying -- Ensure GUI is hidden if fly was turned off
+    manageBodyVelocity()
+end
 
+-- Connect character events
+player.CharacterAdded:Connect(onCharacterAdded)
+if player.Character then
+    onCharacterAdded(player.Character)
+end
 
--- Remove GUI hook (Fly GUI stays regardless of GUI toggle)
--- If previously added, you can remove this hook safely
+-- Replace with your actual GUI button creation logic
+-- Example:
+local flyButton = _G.Main.createButton(utilityFrame, "Toggle Fly", toggleFly)
+local speedButton = _G.Main.createButton(utilityFrame, "Toggle Speed", toggleSpeed)
 
+-- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+
+-- LocalPlayer and Camera
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
-local ESP_Boxes = {} 
-local ESP_Names = {} 
-local ESP_Tracers = {} 
+-- ESP Data Tables
+local ESP_Boxes = {}
+local ESP_Names = {}
+local ESP_Tracers = {}
 
+-- ESP Toggle States
 local ESP_Enabled = false
 local Names_Enabled = false
 local Tracers_Enabled = false
 
+-- Creates ESP elements for a player if they don't already exist
 local function createESP(player)
-    if player == LocalPlayer then return end  
+    -- Don't create for the local player or if ESP already exists
+    if player == LocalPlayer or ESP_Boxes[player] then
+        return
+    end
 
+    -- Box
     local box = Drawing.new("Square")
     box.Thickness = 2
     box.Filled = false
     box.Visible = false
 
+    -- Name Tag
     local nameTag = Drawing.new("Text")
     nameTag.Size = 18
     nameTag.Center = true
     nameTag.Outline = true
     nameTag.Visible = false
 
+    -- Tracer
     local tracer = Drawing.new("Line")
     tracer.Thickness = 2
     tracer.Visible = false
 
+    -- Store the new drawing objects
     ESP_Boxes[player] = box
     ESP_Names[player] = nameTag
     ESP_Tracers[player] = tracer
 end
 
-local function updateESP()
-    for _, player in ipairs(Players:GetPlayers()) do
-        local box = ESP_Boxes[player]
-        local nameTag = ESP_Names[player]
-        local tracer = ESP_Tracers[player]
-
-        if box and nameTag and tracer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") then
-            local hrp = player.Character.HumanoidRootPart
-            local humanoid = player.Character.Humanoid
-            local screenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
-
-            if onScreen then
-                local charHeight = humanoid.HipHeight + 3.5
-                local topScreenPos = Camera:WorldToViewportPoint(hrp.Position + Vector3.new(0, charHeight / 2, 0))
-                local bottomScreenPos = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, charHeight / 2, 0))
-
-                local height = math.abs(topScreenPos.Y - bottomScreenPos.Y) * 1.1
-                local width = height * 0.6 
-
-                local color = (player.Team == LocalPlayer.Team) and Color3.new(0, 0, 1) or Color3.new(1, 0, 0)
-
-                if ESP_Enabled then
-                    box.Size = Vector2.new(width, height)
-                    box.Position = Vector2.new(screenPos.X - (width / 2), screenPos.Y - height * 0.75)
-                    box.Color = color
-                    box.Visible = true
-                else
-                    box.Visible = false
-                end
-
-                if Names_Enabled then
-                    nameTag.Position = Vector2.new(screenPos.X, screenPos.Y - height / 2 - 15)
-                    nameTag.Text = player.Name
-                    nameTag.Color = color
-                    nameTag.Visible = true
-                else
-                    nameTag.Visible = false
-                end
-
-                if Tracers_Enabled then
-                    tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y) -- Start from bottom center
-                    tracer.To = Vector2.new(screenPos.X, screenPos.Y) -- End at player's position
-                    tracer.Color = color
-                    tracer.Visible = true
-                else
-                    tracer.Visible = false
-                end
-            else
-                box.Visible = false
-                nameTag.Visible = false
-                tracer.Visible = false
-            end
-        else
-            if box then box.Visible = false end
-            if nameTag then nameTag.Visible = false end
-            if tracer then tracer.Visible = false end
-        end
-    end
-end
-
+-- Removes and cleans up ESP elements for a player
 local function removeESP(player)
     if ESP_Boxes[player] then
         ESP_Boxes[player]:Remove()
@@ -2183,32 +2139,108 @@ local function removeESP(player)
     end
 end
 
+-- Main update loop that runs every frame
+local function updateESP()
+    for _, player in ipairs(Players:GetPlayers()) do
+        -- Skip the local player
+        if player == LocalPlayer then continue end
+
+        local box = ESP_Boxes[player]
+        local nameTag = ESP_Names[player]
+        local tracer = ESP_Tracers[player]
+
+        -- Check if the player is valid and has a character
+        local characterExists = player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChildOfClass("Humanoid")
+        
+        if box and characterExists then
+            local hrp = player.Character.HumanoidRootPart
+            local screenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+
+            if onScreen then
+                -- Calculations for size and position
+                local headPos = player.Character.Head.Position
+                local headScreenPos = Camera:WorldToViewportPoint(headPos)
+                local scaleFactor = 1 / (headPos - Camera.CFrame.Position).Magnitude
+                local height = 1500 * scaleFactor
+                local width = height * 0.7
+
+                -- Determine color based on team
+                local isTeammate = player.Team and player.Team == LocalPlayer.Team
+                local color = isTeammate and Color3.new(0.2, 0.5, 1) or Color3.new(1, 0.2, 0.2)
+                
+                -- Update Box
+                if ESP_Enabled then
+                    box.Visible = true
+                    box.Color = color
+                    box.Size = Vector2.new(width, height)
+                    box.Position = Vector2.new(headScreenPos.X - width / 2, headScreenPos.Y - height / 2)
+                else
+                    box.Visible = false
+                end
+
+                -- Update Name Tag
+                if Names_Enabled then
+                    nameTag.Visible = true
+                    nameTag.Color = color
+                    nameTag.Text = player.Name
+                    nameTag.Position = Vector2.new(headScreenPos.X, box.Position.Y - nameTag.TextBounds.Y - 2)
+                else
+                    nameTag.Visible = false
+                end
+                
+                -- Update Tracer
+                if Tracers_Enabled then
+                    tracer.Visible = true
+                    tracer.Color = color
+                    tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y) -- Bottom-center of screen
+                    tracer.To = Vector2.new(screenPos.X, screenPos.Y)
+                else
+                    tracer.Visible = false
+                end
+
+            else
+                -- Hide all if off-screen
+                box.Visible = false
+                nameTag.Visible = false
+                tracer.Visible = false
+            end
+        else
+            -- Hide all if the character doesn't exist (is dead or hasn't loaded)
+            if box then box.Visible = false end
+            if nameTag then nameTag.Visible = false end
+            if tracer then tracer.Visible = false end
+        end
+    end
+end
+
+-- ## Event Connections ##
+
+-- Create ESP for players already in the game when the script runs
 for _, player in ipairs(Players:GetPlayers()) do
     createESP(player)
 end
 
-Players.PlayerAdded:Connect(function(player)
-    createESP(player)
-    player.CharacterAdded:Connect(function()
-        createESP(player)
-    end)
-end)
-
+-- Connect functions to player events
+Players.PlayerAdded:Connect(createESP)
 Players.PlayerRemoving:Connect(removeESP)
 
+-- Connect the main update loop to the rendering step
 RunService.RenderStepped:Connect(updateESP)
 
+
+-- ## GUI Buttons (Assumed to be working) ##
+
 _G.Main.createButton(Visuals, "Toggle ESP", function()
-    ESP_Enabled = not ESP_Enabled
-    print("ESP Enabled:", ESP_Enabled)
+	ESP_Enabled = not ESP_Enabled
+	print("ESP Enabled:", ESP_Enabled)
 end)
 
-_G.Main.createButton(Visuals, "Toggle Names", function()
-    Names_Enabled = not Names_Enabled
-    print("Name Tags Enabled:", Names_Enabled)
+ _G.Main.createButton(Visuals, "Toggle Names", function()
+	Names_Enabled = not Names_Enabled
+ 	print("Name Tags Enabled:", Names_Enabled)
 end)
 
-_G.Main.createButton(Visuals, "Toggle Tracers", function()
-    Tracers_Enabled = not Tracers_Enabled
-    print("Tracers Enabled:", Tracers_Enabled)
-end)
+ _G.Main.createButton(Visuals, "Toggle Tracers", function()
+ 	Tracers_Enabled = not Tracers_Enabled
+ 	print("Tracers Enabled:", Tracers_Enabled)
+ end)
