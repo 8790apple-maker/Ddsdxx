@@ -1977,7 +1977,7 @@ FlyGUI.Size = UDim2.new(0, 80, 0, 80)
 FlyGUI.Position = UDim2.new(1, -100, 0.5, -40)
 FlyGUI.BackgroundTransparency = 1
 FlyGUI.Visible = false
-FlyGUI.Parent = player:WaitForChild("PlayerGui")
+FlyGUI.Parent = screenGui
 
 local UpButton = Instance.new("TextButton", FlyGUI)
 UpButton.Size = UDim2.new(1, 0, 0.5, -2)
