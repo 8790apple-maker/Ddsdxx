@@ -1413,7 +1413,7 @@ local function moveTo(targetPos)
 		if isInDangerZone(wp.Position) then return false end -- ❌ Skip path if any waypoint is in danger
 
 		local start = hrp.Position
-		local finish = wp.Position + Vector3.new(0,math.random(5,9),0)
+		local finish = wp.Position + Vector3.new(0,math.random(0,2.9),0)
 		local dist = (finish - start).Magnitude
 		local duration = dist / walkSpeed
 		local startTime = tick()
