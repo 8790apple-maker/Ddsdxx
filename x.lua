@@ -53,7 +53,7 @@ function _G.Main.Init()
     local mainGui = Instance.new("ScreenGui")
     mainGui.Name = "SapienMainGui"
     mainGui.ResetOnSpawn = false
-    mainGui.IgnoreGuiInset = true
+    mainGui.IgnoreGuiInset = false
     mainGui.DisplayOrder = 10
     mainGui.Parent = game:GetService("CoreGui")
     _G.Main.UIReferences.MainGui = mainGui
@@ -795,7 +795,7 @@ runservice.RenderStepped:Connect(function()
 	scrapesp()
 	autoopen()
 end)
-
+sapien.IgnoreGuiInset = true
 local Combat = _G.Main.createFrame(sapien,UDim2.new(0.353, -49,0.345, 5),nil,"Combat","CombatFrame")
 
 local runService = game:GetService("RunService")
